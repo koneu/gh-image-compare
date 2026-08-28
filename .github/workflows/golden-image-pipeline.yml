@@ -1,14 +1,13 @@
 name: Golden Image Pipeline
 
 on:
+  # No paths filter: Image Gate is a required status check, and a required
+  # check from a path-filtered workflow never reports (and so blocks
+  # merging forever) on a PR that doesn't touch those paths. Runs on every
+  # PR instead; if the generator/golden haven't changed, compare trivially
+  # passes.
   pull_request:
     branches: [main]
-    paths:
-      - 'generate_test_image.py'
-      - 'scripts/**'
-      - 'golden-images/**'
-      - 'requirements-ci.txt'
-      - '.github/workflows/golden-image-pipeline.yml'
   workflow_dispatch:
     inputs:
       variant:
