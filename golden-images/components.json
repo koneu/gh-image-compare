@@ -1,5 +1,18 @@
 {
-  "output": ["default"],
-  "button": ["default", "hover", "pressed", "disabled", "focused"],
-  "dialog": ["default"]
+  "output": [
+    "default"
+  ],
+  "button": [
+    "default",
+    "hover",
+    "pressed",
+    "disabled",
+    "focused"
+  ],
+  "dialog": [
+    "default"
+  ],
+  "demo-widget": [
+    "default"
+  ]
 }
