@@ -302,12 +302,18 @@ jobs:
             echo "cs_version=${{ matrix.image }}-$NEXT" >> "$GITHUB_OUTPUT"
           fi
 
+      # Filename is cosmetic - Cloudsmith addresses by (package, version), not
+      # filename, so this never collides even though every image used to be
+      # uploaded as a generic "output.png". Named after "id" (not just
+      # "image") since two different components can share an image name
+      # (e.g. two components could each have a "hover" image).
       - name: Upload candidate as new golden
         env:
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
         run: |
-          cp candidate.png output.png
-          cloudsmith push raw "$CLOUDSMITH_REPO" output.png \
+          FILENAME="${{ matrix.id }}.png"
+          cp candidate.png "$FILENAME"
+          cloudsmith push raw "$CLOUDSMITH_REPO" "$FILENAME" \
             --name "${{ matrix.component }}" --version "${{ steps.version.outputs.cs_version }}" \
             --summary "Golden image ${{ matrix.id }} ${{ steps.version.outputs.version }}, promoted by ${{ github.actor }}"
 
@@ -319,7 +325,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase
           MANIFEST="golden-images/${{ matrix.component }}.manifest.json"
-          SHA=$(sha256sum output.png | cut -d' ' -f1)
+          FILENAME="${{ matrix.id }}.png"
+          SHA=$(sha256sum "$FILENAME" | cut -d' ' -f1)
           if [ -s "$MANIFEST" ]; then
             BASE=$(cat "$MANIFEST")
           else
@@ -328,11 +335,12 @@ jobs:
           echo "$BASE" | jq \
             --arg img "${{ matrix.image }}" \
             --arg version "${{ steps.version.outputs.version }}" \
+            --arg filename "$FILENAME" \
             --arg sha256 "$SHA" \
             --arg promoted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg promoted_by "${{ github.actor }}" \
             --arg run_id "${{ github.run_id }}" \
-            '.images[$img] = {current: {version: $version, filename: "output.png", sha256: $sha256, promoted_at: $promoted_at, promoted_by: $promoted_by, workflow_run_id: $run_id}}' \
+            '.images[$img] = {current: {version: $version, filename: $filename, sha256: $sha256, promoted_at: $promoted_at, promoted_by: $promoted_by, workflow_run_id: $run_id}}' \
             > "$MANIFEST"
           git add "$MANIFEST"
           git commit -m "Promote ${{ matrix.id }} to ${{ steps.version.outputs.version }}"
