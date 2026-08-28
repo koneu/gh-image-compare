@@ -21,10 +21,32 @@ API_BASE = "https://api.cloudsmith.io/v1"
 PREVIEW_QUERY = "name:*-preview$"
 
 
-def api_request(method: str, path: str, api_key: str) -> bytes:
+def api_request(method: str, path: str, api_key: str):
     req = urllib.request.Request(f"{API_BASE}{path}", method=method, headers={"X-Api-Key": api_key})
     with urllib.request.urlopen(req) as resp:
-        return resp.read()
+        return resp.read(), resp.headers
+
+
+def list_all_previews(owner: str, repo: str, api_key: str) -> list:
+    """Cloudsmith paginates package listings (30/page by default); walk every
+    page via X-Pagination-PageTotal or the list would silently stop at the
+    first page's worth of matches."""
+    packages = []
+    page = 1
+    while True:
+        query = urllib.parse.quote(PREVIEW_QUERY)
+        body, headers = api_request(
+            "GET", f"/packages/{owner}/{repo}/?query={query}&page={page}&page_size=100", api_key
+        )
+        pkgs = json.loads(body)
+        if not pkgs:
+            break
+        packages.extend(pkgs)
+        page_total = int(headers.get("X-Pagination-PageTotal", "1"))
+        if page >= page_total:
+            break
+        page += 1
+    return packages
 
 
 def main() -> None:
@@ -38,10 +60,7 @@ def main() -> None:
     cutoff = datetime.now(timezone.utc) - timedelta(days=args.retention_days)
 
     deleted = 0
-    body = api_request(
-        "GET", f"/packages/{args.owner}/{args.repo}/?query={urllib.parse.quote(PREVIEW_QUERY)}", api_key
-    )
-    for pkg in json.loads(body):
+    for pkg in list_all_previews(args.owner, args.repo, api_key):
         uploaded_at = datetime.fromisoformat(pkg["uploaded_at"].replace("Z", "+00:00"))
         if uploaded_at < cutoff:
             api_request("DELETE", f"/packages/{args.owner}/{args.repo}/{pkg['identifier_perm']}/", api_key)
