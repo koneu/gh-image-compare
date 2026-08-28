@@ -340,6 +340,21 @@ jobs:
               gh api "repos/${{ github.repository }}/check-runs" -X POST \
                 -f name="Image Gate" -f head_sha="$CURRENT_SHA" -f status="completed" -f conclusion="$CONCLUSION" >/dev/null
               echo "Mirrored Image Gate ($CONCLUSION) onto $CURRENT_SHA (branch head moved during this run)"
+
+              # Unit Tests/SCA (ci.yml) hit the exact same problem: they only
+              # ran against the original triggering SHA, so without this
+              # they'd also be stuck on "Expected" on the real HEAD. Mirror
+              # their actual recorded conclusions across too. (If more
+              # required checks get added later, add their names here too.)
+              for OTHER_CHECK in "Unit Tests" "SCA"; do
+                OTHER_CONCLUSION=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/check-runs" \
+                  --jq ".check_runs[] | select(.name == \"$OTHER_CHECK\") | .conclusion" | head -1)
+                if [ -n "$OTHER_CONCLUSION" ]; then
+                  gh api "repos/${{ github.repository }}/check-runs" -X POST \
+                    -f name="$OTHER_CHECK" -f head_sha="$CURRENT_SHA" -f status="completed" -f conclusion="$OTHER_CONCLUSION" >/dev/null
+                  echo "Mirrored $OTHER_CHECK ($OTHER_CONCLUSION) onto $CURRENT_SHA"
+                fi
+              done
             fi
           fi
 
