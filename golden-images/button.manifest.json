@@ -6,7 +6,7 @@
     "default": {
       "current": {
         "version": "v1",
-        "filename": "output.png",
+        "filename": "button.png",
         "sha256": "101b7ad46859d4524ce40ad4982b64f724d8761dca188cbfd758e9d39600aec1",
         "promoted_at": "2026-08-28T10:33:53Z",
         "promoted_by": "koneu",
@@ -16,7 +16,7 @@
     "hover": {
       "current": {
         "version": "v1",
-        "filename": "output.png",
+        "filename": "button-hover.png",
         "sha256": "22e14ff9c1b9762038236ae99a383d2df20cf627fd0fdc10ebc18fbf3e20b3a0",
         "promoted_at": "2026-08-28T10:53:36Z",
         "promoted_by": "koneu",
@@ -26,7 +26,7 @@
     "pressed": {
       "current": {
         "version": "v1",
-        "filename": "output.png",
+        "filename": "button-pressed.png",
         "sha256": "dae49dff863dc1d9e04e9caa3a60086766de41c79c96b44a4353daf0217690f4",
         "promoted_at": "2026-08-28T10:54:25Z",
         "promoted_by": "koneu",
@@ -36,7 +36,7 @@
     "disabled": {
       "current": {
         "version": "v1",
-        "filename": "output.png",
+        "filename": "button-disabled.png",
         "sha256": "7e743e86d9df1e3517f0e3a9d2303598f1beefba23526a0f35c30377032290de",
         "promoted_at": "2026-08-28T11:11:34Z",
         "promoted_by": "koneu",
@@ -46,7 +46,7 @@
     "focused": {
       "current": {
         "version": "v1",
-        "filename": "output.png",
+        "filename": "button-focused.png",
         "sha256": "c8abaf9d5964c0555fa09556f2e46faa6a09cd01b5323debf707129623673772",
         "promoted_at": "2026-08-28T11:30:23Z",
         "promoted_by": "koneu",
