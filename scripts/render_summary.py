@@ -34,10 +34,8 @@ def main() -> None:
     parser.add_argument("--diff-url")
     parser.add_argument("--golden-size")
     parser.add_argument("--candidate-size")
-    parser.add_argument("--mismatched-pixels", type=int)
-    parser.add_argument("--total-pixels", type=int)
-    parser.add_argument("--diff-ratio", type=float)
-    parser.add_argument("--threshold", type=float, required=True)
+    parser.add_argument("--ssim-score", type=float)
+    parser.add_argument("--min-ssim", type=float, required=True)
     args = parser.parse_args()
 
     if args.status == "bootstrap":
@@ -58,13 +56,13 @@ def main() -> None:
         )
         return
 
-    exceeds = args.diff_ratio > args.threshold
+    exceeds = args.ssim_score < args.min_ssim
     status_label = "FAIL" if exceeds else "PASS"
     write_summary(
         f"## Image comparison — {status_label}\n\n"
-        f"- Mismatched pixels: **{args.mismatched_pixels}** / {args.total_pixels} ({args.diff_ratio:.2%})\n"
-        f"- Threshold: {args.threshold:.2%}\n\n"
-        "| Golden | Candidate | Diff |\n|:---:|:---:|:---:|\n"
+        f"- SSIM score: **{args.ssim_score:.4f}** (1.0 = identical)\n"
+        f"- Minimum required: {args.min_ssim:.4f}\n\n"
+        "| Golden | Candidate | Diff (red = structurally dissimilar) |\n|:---:|:---:|:---:|\n"
         f"| {img(args.golden_url, 'Golden')} | {img(args.candidate_url, 'Candidate')} | {img(args.diff_url, 'Diff')} |\n"
     )
 

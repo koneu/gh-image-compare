@@ -17,7 +17,7 @@ on:
         default: '0'
 
 env:
-  DIFF_THRESHOLD: '0.01'
+  MIN_SSIM: '0.98'
   CLOUDSMITH_REPO: koneu/image-test
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
       contents: read
     outputs:
       exceeds_threshold: ${{ steps.compare.outputs.exceeds_threshold }}
-      diff_ratio: ${{ steps.compare.outputs.diff_ratio }}
+      ssim_score: ${{ steps.compare.outputs.ssim_score }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,9 +67,9 @@ jobs:
         id: compare
         run: |
           if [ "${{ steps.golden.outputs.exists }}" == "true" ]; then
-            python3 scripts/compare_images.py --candidate candidate.png --golden golden.png --threshold "$DIFF_THRESHOLD"
+            python3 scripts/compare_images.py --candidate candidate.png --golden golden.png --min-ssim "$MIN_SSIM"
           else
-            python3 scripts/compare_images.py --candidate candidate.png --threshold "$DIFF_THRESHOLD"
+            python3 scripts/compare_images.py --candidate candidate.png --min-ssim "$MIN_SSIM"
           fi
 
       # GitHub strips data: URI images from job summaries, so golden/candidate/diff
@@ -106,10 +106,8 @@ jobs:
             --golden-url "${{ steps.previews.outputs.golden_url }}" \
             --golden-size "${{ steps.compare.outputs.golden_size }}" \
             --candidate-size "${{ steps.compare.outputs.candidate_size }}" \
-            --mismatched-pixels "${{ steps.compare.outputs.mismatched_pixels || 0 }}" \
-            --total-pixels "${{ steps.compare.outputs.total_pixels || 0 }}" \
-            --diff-ratio "${{ steps.compare.outputs.diff_ratio }}" \
-            --threshold "$DIFF_THRESHOLD"
+            --ssim-score "${{ steps.compare.outputs.ssim_score }}" \
+            --min-ssim "$MIN_SSIM"
 
       - name: Upload candidate for promotion
         uses: actions/upload-artifact@v4
@@ -121,7 +119,7 @@ jobs:
       - name: Enforce threshold
         if: steps.golden.outputs.exists == 'true' && steps.compare.outputs.exceeds_threshold == 'true'
         run: |
-          echo "Diff ratio ${{ steps.compare.outputs.diff_ratio }} exceeds threshold $DIFF_THRESHOLD"
+          echo "SSIM score ${{ steps.compare.outputs.ssim_score }} is below minimum $MIN_SSIM"
           exit 1
 
   promote:

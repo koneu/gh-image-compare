@@ -1,3 +1,4 @@
 cloudsmith-cli
 Pillow
-pixelmatch
+scikit-image
+numpy
