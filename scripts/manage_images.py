@@ -41,6 +41,20 @@ def load_components() -> dict:
     return json.loads(COMPONENTS_PATH.read_text())
 
 
+def format_components(components: dict) -> str:
+    """Matches the file's existing style (one line per component, images inline)
+    instead of json.dumps(indent=2), which would put every image on its own
+    line and turn a one-entry diff into a whole-file rewrite."""
+    lines = ["{"]
+    entries = list(components.items())
+    for i, (component, images) in enumerate(entries):
+        images_str = ", ".join(json.dumps(img) for img in images)
+        comma = "," if i < len(entries) - 1 else ""
+        lines.append(f"  {json.dumps(component)}: [{images_str}]{comma}")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
 def load_manifest(component: str):
     path = REPO_ROOT / "golden-images" / f"{component}.manifest.json"
     if not path.exists():
@@ -169,7 +183,7 @@ def add_image(component: str, image: str) -> str:
         if image in components[component]:
             raise ValueError(f"{component}/{image} is already tracked.")
         components[component].append(image)
-        COMPONENTS_PATH.write_text(json.dumps(components, indent=2) + "\n")
+        COMPONENTS_PATH.write_text(format_components(components))
 
         run("git", "add", str(COMPONENTS_PATH.relative_to(REPO_ROOT)))
         run("git", "commit", "-m", f"Add {component}/{image} to tracked images")
