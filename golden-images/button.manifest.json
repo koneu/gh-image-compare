@@ -1,13 +1,40 @@
 {
   "cloudsmith_owner": "koneu",
   "cloudsmith_repo": "image-test",
-  "package_name": "button",
-  "current": {
-    "version": "v1",
-    "filename": "output.png",
-    "sha256": "101b7ad46859d4524ce40ad4982b64f724d8761dca188cbfd758e9d39600aec1",
-    "promoted_at": "2026-08-28T10:33:53Z",
-    "promoted_by": "koneu",
-    "workflow_run_id": "33163659223"
+  "component": "button",
+  "images": {
+    "default": {
+      "package_name": "button",
+      "current": {
+        "version": "v1",
+        "filename": "output.png",
+        "sha256": "101b7ad46859d4524ce40ad4982b64f724d8761dca188cbfd758e9d39600aec1",
+        "promoted_at": "2026-08-28T10:33:53Z",
+        "promoted_by": "koneu",
+        "workflow_run_id": "33163659223"
+      }
+    },
+    "hover": {
+      "package_name": "button-hover",
+      "current": {
+        "version": "v1",
+        "filename": "output.png",
+        "sha256": "22e14ff9c1b9762038236ae99a383d2df20cf627fd0fdc10ebc18fbf3e20b3a0",
+        "promoted_at": "2026-08-28T10:53:36Z",
+        "promoted_by": "koneu",
+        "workflow_run_id": "33164963221"
+      }
+    },
+    "pressed": {
+      "package_name": "button-pressed",
+      "current": {
+        "version": "v1",
+        "filename": "output.png",
+        "sha256": "dae49dff863dc1d9e04e9caa3a60086766de41c79c96b44a4353daf0217690f4",
+        "promoted_at": "2026-08-28T10:54:25Z",
+        "promoted_by": "koneu",
+        "workflow_run_id": "33164963221"
+      }
+    }
   }
 }
