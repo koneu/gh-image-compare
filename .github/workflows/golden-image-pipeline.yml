@@ -1,7 +1,7 @@
 name: Golden Image Pipeline
 
 on:
-  push:
+  pull_request:
     branches: [main]
     paths:
       - 'generate_test_image.py'
@@ -130,10 +130,14 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Checks out the PR's own branch (not the ephemeral merge ref) so the
+      # manifest bump lands as a commit on the PR itself. Only works for PRs
+      # from branches in this repo, not forks (GITHUB_TOKEN can't push to a
+      # fork's branch).
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Install Cloudsmith CLI
         run: pip install cloudsmith-cli
@@ -184,3 +188,25 @@ jobs:
           git add golden-images/output.manifest.json
           git commit -m "Promote golden image to ${{ steps.version.outputs.version }}"
           git push
+
+  # The single required status check for branch protection. Succeeds if
+  # either compare passed outright (images already matched) or promote
+  # completed (a reviewer approved a new golden image) — so a PR is
+  # mergeable exactly when one of those two things has happened. While
+  # promote sits pending approval, this job hasn't run yet (needs: waits
+  # for it to reach a terminal state), so the check stays pending too.
+  gate:
+    name: Image Gate
+    needs: [compare, promote]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate
+        run: |
+          if [ "${{ needs.compare.result }}" == "success" ] || [ "${{ needs.promote.result }}" == "success" ]; then
+            echo "Images match, or a new golden was promoted and approved."
+            exit 0
+          else
+            echo "Neither: candidate doesn't match golden, and no promotion was approved."
+            exit 1
+          fi
