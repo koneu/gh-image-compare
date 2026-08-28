@@ -42,6 +42,16 @@
         "promoted_by": "koneu",
         "workflow_run_id": "33166100985"
       }
+    },
+    "focused": {
+      "current": {
+        "version": "v1",
+        "filename": "output.png",
+        "sha256": "c8abaf9d5964c0555fa09556f2e46faa6a09cd01b5323debf707129623673772",
+        "promoted_at": "2026-08-28T11:30:23Z",
+        "promoted_by": "koneu",
+        "workflow_run_id": "33167293808"
+      }
     }
   }
 }
