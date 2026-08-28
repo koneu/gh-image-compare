@@ -83,7 +83,7 @@ jobs:
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
         run: |
           RUN_TAG="run-${{ github.run_id }}-${{ github.run_attempt }}"
-          TOKEN="${{ secrets.CLOUDSMITH_ENTITLEMENT_TOKEN }}"
+          TOKEN="${{ vars.CLOUDSMITH_ENTITLEMENT_TOKEN }}"
 
           cloudsmith push raw "$CLOUDSMITH_REPO" candidate.png --name output-preview --version "$RUN_TAG" >/dev/null
           echo "candidate_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/output-preview/versions/$RUN_TAG/candidate.png" >> "$GITHUB_OUTPUT"
