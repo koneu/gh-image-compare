@@ -27,7 +27,7 @@ def generate(variant: int, size: tuple[int, int] = (400, 300)) -> Image.Image:
     # Shape position walks across the canvas as variant increases.
     cx = 60 + (variant * 37) % (width - 120)
     cy = 60 + (variant * 23) % (height - 120)
-    draw.ellipse((cx - 50, cy - 50, cx + 50, cy + 50), fill=fg)
+    draw.ellipse((cx - 40, cy - 40, cx + 40, cy + 40), fill=fg)
     draw.rectangle((10, 10, width - 10, height - 10), outline=fg, width=3)
     draw.text((20, height - 30), f"variant {variant}", fill=fg)
 
