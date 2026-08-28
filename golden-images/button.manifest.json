@@ -35,6 +35,17 @@
         "promoted_by": "koneu",
         "workflow_run_id": "33164963221"
       }
+    },
+    "disabled": {
+      "package_name": "button-disabled",
+      "current": {
+        "version": "v1",
+        "filename": "output.png",
+        "sha256": "7e743e86d9df1e3517f0e3a9d2303598f1beefba23526a0f35c30377032290de",
+        "promoted_at": "2026-08-28T11:11:34Z",
+        "promoted_by": "koneu",
+        "workflow_run_id": "33166100985"
+      }
     }
   }
 }
