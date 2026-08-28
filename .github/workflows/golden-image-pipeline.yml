@@ -8,6 +8,9 @@ on:
   # passes.
   pull_request:
     branches: [main]
+  # Preview-only: runs compare against the current goldens but never
+  # promotes (see promote's `if`), since that would mean pushing straight
+  # to whatever branch was selected - main included, which is protected.
   workflow_dispatch:
     inputs:
       variant:
@@ -203,7 +206,14 @@ jobs:
   # the same branch. Runs zero legs (and is skipped) if nothing changed.
   promote:
     needs: collect
-    if: always()
+    # workflow_dispatch runs are for previewing a compare against the
+    # current golden (e.g. "does this variant still match?") - they check
+    # out whatever branch was selected, which for a run against main is
+    # main itself. Actually promoting would mean pushing straight to main,
+    # which branch protection rejects (confirmed: GH006, protected branch
+    # update failed) and also isn't a real change to review anyway. Real
+    # promotions only happen through a PR.
+    if: always() && github.event_name == 'pull_request'
     strategy:
       fail-fast: false
       max-parallel: 1
