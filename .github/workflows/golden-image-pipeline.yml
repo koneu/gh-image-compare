@@ -50,6 +50,7 @@ jobs:
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "version=$(jq -r '.current.version' golden-images/output.manifest.json)" >> "$GITHUB_OUTPUT"
             echo "package=$(jq -r '.package_name' golden-images/output.manifest.json)" >> "$GITHUB_OUTPUT"
+            echo "filename=$(jq -r '.current.filename' golden-images/output.manifest.json)" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -70,6 +71,45 @@ jobs:
           else
             python3 scripts/compare_images.py --candidate candidate.png --threshold "$DIFF_THRESHOLD"
           fi
+
+      # GitHub strips data: URI images from job summaries, so golden/candidate/diff
+      # need to be reachable over https to actually render. Candidate and diff only
+      # exist for this run, so they're pushed as short-lived preview packages; golden
+      # already lives in Cloudsmith. All three URLs embed the read-only entitlement
+      # token so the image loads without auth (image-test is a private repo).
+      - name: Publish preview images
+        id: previews
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: |
+          RUN_TAG="run-${{ github.run_id }}-${{ github.run_attempt }}"
+          TOKEN="${{ secrets.CLOUDSMITH_ENTITLEMENT_TOKEN }}"
+
+          cloudsmith push raw "$CLOUDSMITH_REPO" candidate.png --name output-preview --version "$RUN_TAG" >/dev/null
+          echo "candidate_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/output-preview/versions/$RUN_TAG/candidate.png" >> "$GITHUB_OUTPUT"
+
+          if [ -f diff.png ]; then
+            cloudsmith push raw "$CLOUDSMITH_REPO" diff.png --name output-diff-preview --version "$RUN_TAG" >/dev/null
+            echo "diff_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/output-diff-preview/versions/$RUN_TAG/diff.png" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "${{ steps.golden.outputs.exists }}" == "true" ]; then
+            echo "golden_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/${{ steps.golden.outputs.package }}/versions/${{ steps.golden.outputs.version }}/${{ steps.golden.outputs.filename }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Render summary
+        run: |
+          python3 scripts/render_summary.py \
+            --status "${{ steps.compare.outputs.status }}" \
+            --candidate-url "${{ steps.previews.outputs.candidate_url }}" \
+            --diff-url "${{ steps.previews.outputs.diff_url }}" \
+            --golden-url "${{ steps.previews.outputs.golden_url }}" \
+            --golden-size "${{ steps.compare.outputs.golden_size }}" \
+            --candidate-size "${{ steps.compare.outputs.candidate_size }}" \
+            --mismatched-pixels "${{ steps.compare.outputs.mismatched_pixels || 0 }}" \
+            --total-pixels "${{ steps.compare.outputs.total_pixels || 0 }}" \
+            --diff-ratio "${{ steps.compare.outputs.diff_ratio }}" \
+            --threshold "$DIFF_THRESHOLD"
 
       - name: Upload candidate for promotion
         uses: actions/upload-artifact@v4
@@ -120,14 +160,14 @@ jobs:
         env:
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
         run: |
-          cloudsmith push raw "$CLOUDSMITH_REPO" candidate.png \
+          cp candidate.png output.png
+          cloudsmith push raw "$CLOUDSMITH_REPO" output.png \
             --name output --version "${{ steps.version.outputs.version }}" \
-            --summary "Golden image ${{ steps.version.outputs.version }}, promoted by ${{ github.actor }}" \
-            --republish
+            --summary "Golden image ${{ steps.version.outputs.version }}, promoted by ${{ github.actor }}"
 
       - name: Update manifest
         run: |
-          SHA=$(sha256sum candidate.png | cut -d' ' -f1)
+          SHA=$(sha256sum output.png | cut -d' ' -f1)
           jq -n \
             --arg owner "koneu" \
             --arg repo "image-test" \
@@ -136,7 +176,7 @@ jobs:
             --arg promoted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg promoted_by "${{ github.actor }}" \
             --arg run_id "${{ github.run_id }}" \
-            '{cloudsmith_owner: $owner, cloudsmith_repo: $repo, package_name: "output", current: {version: $version, sha256: $sha256, promoted_at: $promoted_at, promoted_by: $promoted_by, workflow_run_id: $run_id}}' \
+            '{cloudsmith_owner: $owner, cloudsmith_repo: $repo, package_name: "output", current: {version: $version, filename: "output.png", sha256: $sha256, promoted_at: $promoted_at, promoted_by: $promoted_by, workflow_run_id: $run_id}}' \
             > golden-images/output.manifest.json
 
       - name: Commit updated manifest

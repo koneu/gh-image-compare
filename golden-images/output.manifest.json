@@ -4,6 +4,7 @@
   "package_name": "output",
   "current": {
     "version": "v1",
+    "filename": "output.png",
     "sha256": "568ffb5938463676d2532868045f5055e048fed719b1a13fec92da9b849b7b78",
     "promoted_at": "2026-08-28T08:56:51Z",
     "promoted_by": "koneu",

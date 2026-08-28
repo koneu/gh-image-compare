@@ -1,24 +1,21 @@
 #!/usr/bin/env python3
-"""Compare a candidate image against the current golden image.
+"""Compute the pixel diff between a candidate image and the current golden image.
 
-Writes a GitHub Actions job summary (golden/candidate/diff inline as
-base64 images) and sets step outputs: exceeds_threshold, diff_ratio,
-mismatched_pixels, width, height.
+Sets step outputs: status (bootstrap|size_mismatch|compared), exceeds_threshold,
+diff_ratio, mismatched_pixels, total_pixels, golden_size, candidate_size.
+Writes a diff image to --diff-out only when status is 'compared'.
 
-Never fails on its own (exit code 0) so the summary always gets written;
-the calling workflow step decides whether to fail the job based on the
-exceeds_threshold output.
+Never fails on its own (exit code 0); the calling workflow step decides
+whether to fail the job based on the exceeds_threshold output. Image
+rendering is handled separately by render_summary.py, since it needs
+externally-hosted URLs rather than local paths (GitHub strips data: URIs
+from job-summary <img> tags).
 """
 import argparse
-import base64
 import os
 from pathlib import Path
 
 from PIL import Image
-
-
-def b64_img(path: Path) -> str:
-    return base64.b64encode(path.read_bytes()).decode()
 
 
 def write_output(name: str, value: str) -> None:
@@ -28,15 +25,6 @@ def write_output(name: str, value: str) -> None:
         return
     with open(path, "a") as f:
         f.write(f"{name}={value}\n")
-
-
-def write_summary(md: str) -> None:
-    path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if not path:
-        print(md)
-        return
-    with open(path, "a") as f:
-        f.write(md)
 
 
 def main() -> None:
@@ -49,32 +37,22 @@ def main() -> None:
 
     candidate_path = Path(args.candidate)
     candidate = Image.open(candidate_path).convert("RGBA")
+    write_output("candidate_size", f"{candidate.size[0]}x{candidate.size[1]}")
 
     if not args.golden or not Path(args.golden).exists():
+        write_output("status", "bootstrap")
         write_output("exceeds_threshold", "true")
         write_output("diff_ratio", "1.0")
-        write_summary(
-            "## Image comparison\n\n"
-            "No golden image found yet — this run establishes the baseline.\n\n"
-            f'<img src="data:image/png;base64,{b64_img(candidate_path)}" width="300" alt="candidate">\n\n'
-            "If the promotion job is approved, this candidate becomes golden v1.\n"
-        )
         return
 
     golden_path = Path(args.golden)
     golden = Image.open(golden_path).convert("RGBA")
+    write_output("golden_size", f"{golden.size[0]}x{golden.size[1]}")
 
     if golden.size != candidate.size:
+        write_output("status", "size_mismatch")
         write_output("exceeds_threshold", "true")
         write_output("diff_ratio", "1.0")
-        write_summary(
-            "## Image comparison — FAIL (size mismatch)\n\n"
-            f"Golden is {golden.size[0]}x{golden.size[1]}, "
-            f"candidate is {candidate.size[0]}x{candidate.size[1]}.\n\n"
-            "| Golden | Candidate |\n|:---:|:---:|\n"
-            f'| <img src="data:image/png;base64,{b64_img(golden_path)}" width="300"> '
-            f'| <img src="data:image/png;base64,{b64_img(candidate_path)}" width="300"> |\n'
-        )
         return
 
     from pixelmatch.contrib.PIL import pixelmatch
@@ -86,25 +64,13 @@ def main() -> None:
     ratio = mismatched / total
     exceeds = ratio > args.threshold
 
-    diff_path = Path(args.diff_out)
-    diff_img.save(diff_path)
+    diff_img.save(args.diff_out)
 
+    write_output("status", "compared")
     write_output("exceeds_threshold", "true" if exceeds else "false")
     write_output("diff_ratio", f"{ratio:.6f}")
     write_output("mismatched_pixels", str(mismatched))
-    write_output("width", str(width))
-    write_output("height", str(height))
-
-    status = "FAIL" if exceeds else "PASS"
-    write_summary(
-        f"## Image comparison — {status}\n\n"
-        f"- Mismatched pixels: **{mismatched}** / {total} ({ratio:.2%})\n"
-        f"- Threshold: {args.threshold:.2%}\n\n"
-        "| Golden | Candidate | Diff |\n|:---:|:---:|:---:|\n"
-        f'| <img src="data:image/png;base64,{b64_img(golden_path)}" width="260"> '
-        f'| <img src="data:image/png;base64,{b64_img(candidate_path)}" width="260"> '
-        f'| <img src="data:image/png;base64,{b64_img(diff_path)}" width="260"> |\n'
-    )
+    write_output("total_pixels", str(total))
 
 
 if __name__ == "__main__":
