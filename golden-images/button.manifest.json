@@ -1,0 +1,13 @@
+{
+  "cloudsmith_owner": "koneu",
+  "cloudsmith_repo": "image-test",
+  "package_name": "button",
+  "current": {
+    "version": "v1",
+    "filename": "output.png",
+    "sha256": "101b7ad46859d4524ce40ad4982b64f724d8761dca188cbfd758e9d39600aec1",
+    "promoted_at": "2026-08-28T10:33:53Z",
+    "promoted_by": "koneu",
+    "workflow_run_id": "33163659223"
+  }
+}

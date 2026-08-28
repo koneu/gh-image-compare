@@ -1,4 +1,4 @@
-from generate_test_image import generate
+from generate_test_image import component_offset, generate
 
 
 def test_generate_returns_expected_size():
@@ -12,3 +12,11 @@ def test_generate_is_deterministic_per_variant():
 
 def test_different_variants_differ():
     assert generate(0).tobytes() != generate(1).tobytes()
+
+
+def test_output_component_offset_is_zero():
+    assert component_offset("output") == 0
+
+
+def test_other_components_get_distinct_offsets():
+    assert component_offset("button") != component_offset("dialog")

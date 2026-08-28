@@ -4,15 +4,29 @@
 Usage:
     python3 generate_test_image.py --variant 0 --out baseline.png
     python3 generate_test_image.py --variant 1 --out changed.png
+    python3 generate_test_image.py --component button --variant 0 --out button.png
 
 Everything about the image is derived from --variant, so bumping that
 one number is enough to produce a visibly different but same-shaped
 image (color, shape position, and label all shift with it).
+
+--component picks a different base look per named component (so
+multiple "component tests" can be simulated from this one script) by
+offsetting the variant with a hash of the component name. "output" is
+special-cased to offset 0 so it stays backward compatible with goldens
+generated before --component existed.
 """
 import argparse
 import colorsys
+import hashlib
 
 from PIL import Image, ImageDraw
+
+
+def component_offset(component: str) -> int:
+    if component == "output":
+        return 0
+    return int(hashlib.sha256(component.encode()).hexdigest(), 16) % 1000
 
 
 def generate(variant: int, size: tuple[int, int] = (400, 300)) -> Image.Image:
@@ -36,12 +50,14 @@ def generate(variant: int, size: tuple[int, int] = (400, 300)) -> Image.Image:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--component", default="output", help="component name; picks a distinct base look")
     parser.add_argument("--variant", type=int, default=0, help="any integer; changes color/shape/label")
     parser.add_argument("--out", default="test-image.png", help="output PNG path")
     args = parser.parse_args()
 
-    generate(args.variant).save(args.out)
-    print(f"wrote {args.out} (variant={args.variant})")
+    effective_variant = component_offset(args.component) + args.variant
+    generate(effective_variant).save(args.out)
+    print(f"wrote {args.out} (component={args.component}, variant={args.variant})")
 
 
 if __name__ == "__main__":

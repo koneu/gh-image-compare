@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       variant:
-        description: 'Variant number passed to generate_test_image.py (change this to simulate a different rendered image)'
+        description: 'Variant number passed to generate_test_image.py (change this to simulate a different rendered image), applied to every component'
         required: false
         default: '0'
 
@@ -20,13 +20,30 @@ env:
   CLOUDSMITH_REPO: koneu/image-test
 
 jobs:
+  # Lists the tracked components (golden-images/components.json) so compare
+  # can run one matrix leg per component. A static file for now; swap for a
+  # step that lists the real component test suite's output directory later.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      components: ${{ steps.list.outputs.components }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: List components
+        id: list
+        run: echo "components=$(jq -c . golden-images/components.json)" >> "$GITHUB_OUTPUT"
+
   compare:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJSON(needs.plan.outputs.components) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    outputs:
-      exceeds_threshold: ${{ steps.compare.outputs.exceeds_threshold }}
-      ssim_score: ${{ steps.compare.outputs.ssim_score }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,16 +57,19 @@ jobs:
         run: pip install -r requirements-ci.txt
 
       - name: Generate candidate image
-        run: python3 generate_test_image.py --variant "${{ github.event.inputs.variant || '0' }}" --out candidate.png
+        run: |
+          python3 generate_test_image.py --component "${{ matrix.component }}" \
+            --variant "${{ github.event.inputs.variant || '0' }}" --out candidate.png
 
       - name: Resolve current golden image
         id: golden
         run: |
-          if [ -s golden-images/output.manifest.json ] && [ "$(jq -r '.current // empty' golden-images/output.manifest.json)" != "" ]; then
+          MANIFEST="golden-images/${{ matrix.component }}.manifest.json"
+          if [ -s "$MANIFEST" ] && [ "$(jq -r '.current // empty' "$MANIFEST")" != "" ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "version=$(jq -r '.current.version' golden-images/output.manifest.json)" >> "$GITHUB_OUTPUT"
-            echo "package=$(jq -r '.package_name' golden-images/output.manifest.json)" >> "$GITHUB_OUTPUT"
-            echo "filename=$(jq -r '.current.filename' golden-images/output.manifest.json)" >> "$GITHUB_OUTPUT"
+            echo "version=$(jq -r '.current.version' "$MANIFEST")" >> "$GITHUB_OUTPUT"
+            echo "package=$(jq -r '.package_name' "$MANIFEST")" >> "$GITHUB_OUTPUT"
+            echo "filename=$(jq -r '.current.filename' "$MANIFEST")" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -83,13 +103,14 @@ jobs:
         run: |
           RUN_TAG="run-${{ github.run_id }}-${{ github.run_attempt }}"
           TOKEN="${{ vars.CLOUDSMITH_ENTITLEMENT_TOKEN }}"
+          COMPONENT="${{ matrix.component }}"
 
-          cloudsmith push raw "$CLOUDSMITH_REPO" candidate.png --name output-preview --version "$RUN_TAG" >/dev/null
-          echo "candidate_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/output-preview/versions/$RUN_TAG/candidate.png" >> "$GITHUB_OUTPUT"
+          cloudsmith push raw "$CLOUDSMITH_REPO" candidate.png --name "${COMPONENT}-preview" --version "$RUN_TAG" >/dev/null
+          echo "candidate_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/${COMPONENT}-preview/versions/$RUN_TAG/candidate.png" >> "$GITHUB_OUTPUT"
 
           if [ -f diff.png ]; then
-            cloudsmith push raw "$CLOUDSMITH_REPO" diff.png --name output-diff-preview --version "$RUN_TAG" >/dev/null
-            echo "diff_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/output-diff-preview/versions/$RUN_TAG/diff.png" >> "$GITHUB_OUTPUT"
+            cloudsmith push raw "$CLOUDSMITH_REPO" diff.png --name "${COMPONENT}-diff-preview" --version "$RUN_TAG" >/dev/null
+            echo "diff_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/${COMPONENT}-diff-preview/versions/$RUN_TAG/diff.png" >> "$GITHUB_OUTPUT"
           fi
 
           if [ "${{ steps.golden.outputs.exists }}" == "true" ]; then
@@ -99,6 +120,7 @@ jobs:
       - name: Render summary
         run: |
           python3 scripts/render_summary.py \
+            --component "${{ matrix.component }}" \
             --status "${{ steps.compare.outputs.status }}" \
             --candidate-url "${{ steps.previews.outputs.candidate_url }}" \
             --diff-url "${{ steps.previews.outputs.diff_url }}" \
@@ -108,10 +130,28 @@ jobs:
             --ssim-score "${{ steps.compare.outputs.ssim_score }}" \
             --min-ssim "$MIN_SSIM"
 
+      # Matrix job outputs collapse to whichever leg finishes last, so
+      # per-component results for collect/promote travel as artifacts
+      # instead of `needs.compare.outputs.*`.
+      - name: Write compare result
+        run: |
+          jq -n \
+            --arg component "${{ matrix.component }}" \
+            --arg exceeds "${{ steps.compare.outputs.exceeds_threshold }}" \
+            --arg ssim "${{ steps.compare.outputs.ssim_score }}" \
+            '{component: $component, exceeds_threshold: $exceeds, ssim_score: $ssim}' \
+            > "result-${{ matrix.component }}.json"
+
+      - name: Upload compare result
+        uses: actions/upload-artifact@v4
+        with:
+          name: compare-result-${{ matrix.component }}
+          path: result-${{ matrix.component }}.json
+
       - name: Upload candidate for promotion
         uses: actions/upload-artifact@v4
         with:
-          name: candidate-image
+          name: candidate-image-${{ matrix.component }}
           path: candidate.png
           retention-days: 14
 
@@ -121,9 +161,54 @@ jobs:
           echo "SSIM score ${{ steps.compare.outputs.ssim_score }} is below minimum $MIN_SSIM"
           exit 1
 
-  promote:
+  # Reads every component's compare result and decides which ones need a
+  # promotion job. Always runs, even if some/all compare legs failed.
+  collect:
     needs: compare
-    if: always() && needs.compare.outputs.exceeds_threshold == 'true'
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      components_needing_promotion: ${{ steps.collect.outputs.components }}
+    steps:
+      - name: Download all compare results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: compare-result-*
+          path: results
+          merge-multiple: true
+
+      - name: Determine components needing promotion
+        id: collect
+        run: |
+          python3 - <<'PYEOF'
+          import glob
+          import json
+          import os
+
+          needed = []
+          for path in glob.glob("results/result-*.json"):
+              with open(path) as f:
+                  data = json.load(f)
+              if data["exceeds_threshold"] == "true":
+                  needed.append(data["component"])
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"components={json.dumps(sorted(needed))}\n")
+          print("components needing promotion:", sorted(needed))
+          PYEOF
+
+  # One matrix leg per component that needs a new golden, each gated
+  # independently behind golden-image-approval. max-parallel: 1 plus a
+  # pull --rebase before pushing keeps sibling promotions from racing on
+  # the same branch. Runs zero legs (and is skipped) if nothing changed.
+  promote:
+    needs: collect
+    if: always()
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        component: ${{ fromJSON(needs.collect.outputs.components_needing_promotion) }}
     runs-on: ubuntu-latest
     environment: golden-image-approval
     permissions:
@@ -144,13 +229,14 @@ jobs:
       - name: Download candidate artifact
         uses: actions/download-artifact@v4
         with:
-          name: candidate-image
+          name: candidate-image-${{ matrix.component }}
 
       - name: Compute next version
         id: version
         run: |
-          if [ -s golden-images/output.manifest.json ]; then
-            CURRENT=$(jq -r '.current.version // "v0"' golden-images/output.manifest.json | sed 's/^v//')
+          MANIFEST="golden-images/${{ matrix.component }}.manifest.json"
+          if [ -s "$MANIFEST" ]; then
+            CURRENT=$(jq -r '.current.version // "v0"' "$MANIFEST" | sed 's/^v//')
           else
             CURRENT=0
           fi
@@ -163,49 +249,69 @@ jobs:
         run: |
           cp candidate.png output.png
           cloudsmith push raw "$CLOUDSMITH_REPO" output.png \
-            --name output --version "${{ steps.version.outputs.version }}" \
-            --summary "Golden image ${{ steps.version.outputs.version }}, promoted by ${{ github.actor }}"
+            --name "${{ matrix.component }}" --version "${{ steps.version.outputs.version }}" \
+            --summary "Golden image ${{ matrix.component }} ${{ steps.version.outputs.version }}, promoted by ${{ github.actor }}"
 
       - name: Update manifest
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase
           SHA=$(sha256sum output.png | cut -d' ' -f1)
           jq -n \
             --arg owner "koneu" \
             --arg repo "image-test" \
+            --arg pkg "${{ matrix.component }}" \
             --arg version "${{ steps.version.outputs.version }}" \
             --arg sha256 "$SHA" \
             --arg promoted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg promoted_by "${{ github.actor }}" \
             --arg run_id "${{ github.run_id }}" \
-            '{cloudsmith_owner: $owner, cloudsmith_repo: $repo, package_name: "output", current: {version: $version, filename: "output.png", sha256: $sha256, promoted_at: $promoted_at, promoted_by: $promoted_by, workflow_run_id: $run_id}}' \
-            > golden-images/output.manifest.json
-
-      - name: Commit updated manifest
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add golden-images/output.manifest.json
-          git commit -m "Promote golden image to ${{ steps.version.outputs.version }}"
+            '{cloudsmith_owner: $owner, cloudsmith_repo: $repo, package_name: $pkg, current: {version: $version, filename: "output.png", sha256: $sha256, promoted_at: $promoted_at, promoted_by: $promoted_by, workflow_run_id: $run_id}}' \
+            > "golden-images/${{ matrix.component }}.manifest.json"
+          git add "golden-images/${{ matrix.component }}.manifest.json"
+          git commit -m "Promote ${{ matrix.component }} to ${{ steps.version.outputs.version }}"
           git push
 
   # The single required status check for branch protection. Succeeds if
-  # either compare passed outright (images already matched) or promote
-  # completed (a reviewer approved a new golden image) — so a PR is
-  # mergeable exactly when one of those two things has happened. While
-  # promote sits pending approval, this job hasn't run yet (needs: waits
-  # for it to reach a terminal state), so the check stays pending too.
+  # every component either passed compare outright, or got an approved
+  # promotion. While any promotion sits pending approval, this job hasn't
+  # run yet (needs: waits for all matrix legs to reach a terminal state),
+  # so the check stays pending too.
   gate:
     name: Image Gate
     needs: [compare, promote]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
     steps:
-      - name: Evaluate
+      # promote pushes commits (the manifest bump) onto the PR branch after
+      # this run's checks already started. GITHUB_TOKEN pushes don't trigger
+      # a new pull_request run, so that new HEAD commit would otherwise
+      # never get its own "Image Gate" check - leaving branch protection
+      # waiting on it forever, even though everything actually passed. Mirror
+      # this run's conclusion onto whatever the branch's current HEAD is.
+      - name: Evaluate and report
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ needs.compare.result }}" == "success" ] || [ "${{ needs.promote.result }}" == "success" ]; then
-            echo "Images match, or a new golden was promoted and approved."
-            exit 0
+            CONCLUSION="success"
+            echo "Every component matched its golden, or had a promotion approved."
           else
-            echo "Neither: candidate doesn't match golden, and no promotion was approved."
-            exit 1
+            CONCLUSION="failure"
+            echo "At least one component doesn't match golden and has no approved promotion."
           fi
+
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BRANCH="${{ github.head_ref }}"
+            CURRENT_SHA=$(gh api "repos/${{ github.repository }}/git/ref/heads/$BRANCH" --jq .object.sha)
+            if [ "$CURRENT_SHA" != "${{ github.sha }}" ]; then
+              gh api "repos/${{ github.repository }}/check-runs" -X POST \
+                -f name="Image Gate" -f head_sha="$CURRENT_SHA" -f status="completed" -f conclusion="$CONCLUSION" >/dev/null
+              echo "Mirrored Image Gate ($CONCLUSION) onto $CURRENT_SHA (branch head moved during this run)"
+            fi
+          fi
+
+          [ "$CONCLUSION" == "success" ]

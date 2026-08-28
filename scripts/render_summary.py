@@ -28,6 +28,7 @@ def img(url: str | None, label: str, width: int = 260) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--component", default="output")
     parser.add_argument("--status", required=True, choices=["bootstrap", "size_mismatch", "compared"])
     parser.add_argument("--golden-url")
     parser.add_argument("--candidate-url", required=True)
@@ -40,7 +41,7 @@ def main() -> None:
 
     if args.status == "bootstrap":
         write_summary(
-            "## Image comparison\n\n"
+            f"## Image comparison: {args.component}\n\n"
             "No golden image found yet — this run establishes the baseline.\n\n"
             f"{img(args.candidate_url, 'Candidate')}\n\n"
             "If the promotion job is approved, this candidate becomes golden v1.\n"
@@ -49,7 +50,7 @@ def main() -> None:
 
     if args.status == "size_mismatch":
         write_summary(
-            "## Image comparison — FAIL (size mismatch)\n\n"
+            f"## Image comparison: {args.component} — FAIL (size mismatch)\n\n"
             f"Golden is {args.golden_size}, candidate is {args.candidate_size}.\n\n"
             "| Golden | Candidate |\n|:---:|:---:|\n"
             f"| {img(args.golden_url, 'Golden')} | {img(args.candidate_url, 'Candidate')} |\n"
@@ -59,7 +60,7 @@ def main() -> None:
     exceeds = args.ssim_score < args.min_ssim
     status_label = "FAIL" if exceeds else "PASS"
     write_summary(
-        f"## Image comparison — {status_label}\n\n"
+        f"## Image comparison: {args.component} — {status_label}\n\n"
         f"- SSIM score: **{args.ssim_score:.4f}** (1.0 = identical)\n"
         f"- Minimum required: {args.min_ssim:.4f}\n\n"
         "| Golden | Candidate | Diff (red = structurally dissimilar) |\n|:---:|:---:|:---:|\n"

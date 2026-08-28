@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Delete stale candidate/diff preview packages from Cloudsmith.
 
-Every pipeline run pushes a short-lived "output-preview" and
-"output-diff-preview" package (candidate/diff images for that run's job
-summary) alongside the real golden line ("output"). Those previews are
-only needed for as long as someone might look at that run's summary, so
-this deletes any older than --retention-days. The "output" package
-(actual golden images) is never touched.
+Every pipeline run pushes a short-lived "<component>-preview" and
+"<component>-diff-preview" package (candidate/diff images for that run's
+job summary) per component, alongside the real golden line
+("<component>"). Those previews are only needed for as long as someone
+might look at that run's summary, so this deletes any older than
+--retention-days. A single "name ends with -preview" query catches both
+kinds for every component without needing to know the component list -
+golden packages (bare component names) never match it.
 """
 import argparse
 import json
@@ -16,7 +18,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 API_BASE = "https://api.cloudsmith.io/v1"
-PREVIEW_PACKAGE_NAMES = ["output-preview", "output-diff-preview"]
+PREVIEW_QUERY = "name:*-preview$"
 
 
 def api_request(method: str, path: str, api_key: str) -> bytes:
@@ -36,15 +38,15 @@ def main() -> None:
     cutoff = datetime.now(timezone.utc) - timedelta(days=args.retention_days)
 
     deleted = 0
-    for name in PREVIEW_PACKAGE_NAMES:
-        query = f"name:^{name}$"
-        body = api_request("GET", f"/packages/{args.owner}/{args.repo}/?query={urllib.parse.quote(query)}", api_key)
-        for pkg in json.loads(body):
-            uploaded_at = datetime.fromisoformat(pkg["uploaded_at"].replace("Z", "+00:00"))
-            if uploaded_at < cutoff:
-                api_request("DELETE", f"/packages/{args.owner}/{args.repo}/{pkg['identifier_perm']}/", api_key)
-                print(f"deleted {name} {pkg['version']} (uploaded {pkg['uploaded_at']})")
-                deleted += 1
+    body = api_request(
+        "GET", f"/packages/{args.owner}/{args.repo}/?query={urllib.parse.quote(PREVIEW_QUERY)}", api_key
+    )
+    for pkg in json.loads(body):
+        uploaded_at = datetime.fromisoformat(pkg["uploaded_at"].replace("Z", "+00:00"))
+        if uploaded_at < cutoff:
+            api_request("DELETE", f"/packages/{args.owner}/{args.repo}/{pkg['identifier_perm']}/", api_key)
+            print(f"deleted {pkg['name']} {pkg['version']} (uploaded {pkg['uploaded_at']})")
+            deleted += 1
 
     print(f"done: deleted {deleted} stale preview package(s), kept anything newer than {args.retention_days}d")
 
