@@ -1,1 +1,5 @@
-["output", "button", "dialog"]
+{
+  "output": ["default"],
+  "button": ["default", "hover", "pressed"],
+  "dialog": ["default"]
+}
