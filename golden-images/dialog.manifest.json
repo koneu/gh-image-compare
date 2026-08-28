@@ -4,7 +4,6 @@
   "component": "dialog",
   "images": {
     "default": {
-      "package_name": "dialog",
       "current": {
         "version": "v1",
         "filename": "output.png",
