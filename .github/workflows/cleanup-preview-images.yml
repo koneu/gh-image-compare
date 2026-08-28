@@ -3,7 +3,16 @@ name: Cleanup preview images
 on:
   schedule:
     - cron: '0 3 * * *'
-  workflow_dispatch: {}
+  # Scheduled runs always use the 7-day default (github.event.inputs is
+  # unset for schedule events, so the fallback below kicks in). Manual
+  # runs can override - e.g. retention_days: 0 to purge every preview
+  # package right now.
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: 'Delete preview packages older than this many days (0 = delete all)'
+        required: false
+        default: '7'
 
 jobs:
   cleanup:
@@ -15,4 +24,6 @@ jobs:
       - name: Delete stale preview packages
         env:
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
-        run: python3 scripts/cleanup_previews.py --owner koneu --repo image-test --retention-days 7
+        run: |
+          python3 scripts/cleanup_previews.py --owner koneu --repo image-test \
+            --retention-days "${{ github.event.inputs.retention_days || '7' }}"
