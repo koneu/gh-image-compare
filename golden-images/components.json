@@ -1,5 +1,5 @@
 {
   "output": ["default"],
-  "button": ["default", "hover", "pressed"],
+  "button": ["default", "hover", "pressed", "disabled"],
   "dialog": ["default"]
 }

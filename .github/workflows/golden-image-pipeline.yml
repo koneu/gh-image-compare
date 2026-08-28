@@ -356,9 +356,18 @@ jobs:
           fi
 
           if [ "${{ github.event_name }}" == "pull_request" ]; then
+            # github.sha for a pull_request event is a synthetic merge
+            # commit (refs/pull/N/merge), NOT the PR branch's real head -
+            # and it's what every other check (Unit Tests/SCA) actually got
+            # recorded against. Comparing/querying against github.sha here
+            # was wrong: the "did HEAD move" check was always true (a merge
+            # commit never equals the branch tip, promote or not), and the
+            # Unit Tests/SCA lookup below always found nothing since those
+            # checks live on the real head SHA, not the merge SHA.
+            ORIGINAL_SHA="${{ github.event.pull_request.head.sha }}"
             BRANCH="${{ github.head_ref }}"
             CURRENT_SHA=$(gh api "repos/${{ github.repository }}/git/ref/heads/$BRANCH" --jq .object.sha)
-            if [ "$CURRENT_SHA" != "${{ github.sha }}" ]; then
+            if [ "$CURRENT_SHA" != "$ORIGINAL_SHA" ]; then
               gh api "repos/${{ github.repository }}/check-runs" -X POST \
                 -f name="Image Gate" -f head_sha="$CURRENT_SHA" -f status="completed" -f conclusion="$CONCLUSION" >/dev/null
               echo "Mirrored Image Gate ($CONCLUSION) onto $CURRENT_SHA (branch head moved during this run)"
@@ -369,7 +378,7 @@ jobs:
               # their actual recorded conclusions across too. (If more
               # required checks get added later, add their names here too.)
               for OTHER_CHECK in "Unit Tests" "SCA"; do
-                OTHER_CONCLUSION=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/check-runs" \
+                OTHER_CONCLUSION=$(gh api "repos/${{ github.repository }}/commits/$ORIGINAL_SHA/check-runs" \
                   --jq ".check_runs[] | select(.name == \"$OTHER_CHECK\") | .conclusion" | head -1)
                 if [ -n "$OTHER_CONCLUSION" ]; then
                   gh api "repos/${{ github.repository }}/check-runs" -X POST \
