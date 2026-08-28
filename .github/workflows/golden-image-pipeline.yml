@@ -1,0 +1,148 @@
+name: Golden Image Pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'generate_test_image.py'
+      - 'scripts/**'
+      - 'golden-images/**'
+      - 'requirements-ci.txt'
+      - '.github/workflows/golden-image-pipeline.yml'
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Variant number passed to generate_test_image.py (change this to simulate a different rendered image)'
+        required: false
+        default: '0'
+
+env:
+  DIFF_THRESHOLD: '0.01'
+  CLOUDSMITH_REPO: koneu/image-test
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      exceeds_threshold: ${{ steps.compare.outputs.exceeds_threshold }}
+      diff_ratio: ${{ steps.compare.outputs.diff_ratio }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements-ci.txt
+
+      - name: Generate candidate image
+        run: python3 generate_test_image.py --variant "${{ github.event.inputs.variant || '0' }}" --out candidate.png
+
+      - name: Resolve current golden image
+        id: golden
+        run: |
+          if [ -s golden-images/output.manifest.json ] && [ "$(jq -r '.current // empty' golden-images/output.manifest.json)" != "" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "version=$(jq -r '.current.version' golden-images/output.manifest.json)" >> "$GITHUB_OUTPUT"
+            echo "package=$(jq -r '.package_name' golden-images/output.manifest.json)" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download golden image
+        if: steps.golden.outputs.exists == 'true'
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: |
+          cloudsmith download "$CLOUDSMITH_REPO" "${{ steps.golden.outputs.package }}" \
+            --version "${{ steps.golden.outputs.version }}" --outfile golden.png -y
+
+      - name: Compare images
+        id: compare
+        run: |
+          if [ "${{ steps.golden.outputs.exists }}" == "true" ]; then
+            python3 scripts/compare_images.py --candidate candidate.png --golden golden.png --threshold "$DIFF_THRESHOLD"
+          else
+            python3 scripts/compare_images.py --candidate candidate.png --threshold "$DIFF_THRESHOLD"
+          fi
+
+      - name: Upload candidate for promotion
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-image
+          path: candidate.png
+          retention-days: 14
+
+      - name: Enforce threshold
+        if: steps.golden.outputs.exists == 'true' && steps.compare.outputs.exceeds_threshold == 'true'
+        run: |
+          echo "Diff ratio ${{ steps.compare.outputs.diff_ratio }} exceeds threshold $DIFF_THRESHOLD"
+          exit 1
+
+  promote:
+    needs: compare
+    if: always() && needs.compare.outputs.exceeds_threshold == 'true'
+    runs-on: ubuntu-latest
+    environment: golden-image-approval
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Install Cloudsmith CLI
+        run: pip install cloudsmith-cli
+
+      - name: Download candidate artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-image
+
+      - name: Compute next version
+        id: version
+        run: |
+          if [ -s golden-images/output.manifest.json ]; then
+            CURRENT=$(jq -r '.current.version // "v0"' golden-images/output.manifest.json | sed 's/^v//')
+          else
+            CURRENT=0
+          fi
+          NEXT=$((CURRENT + 1))
+          echo "version=v$NEXT" >> "$GITHUB_OUTPUT"
+
+      - name: Upload candidate as new golden
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: |
+          cloudsmith push raw "$CLOUDSMITH_REPO" candidate.png \
+            --name output --version "${{ steps.version.outputs.version }}" \
+            --summary "Golden image ${{ steps.version.outputs.version }}, promoted by ${{ github.actor }}" \
+            --republish
+
+      - name: Update manifest
+        run: |
+          SHA=$(sha256sum candidate.png | cut -d' ' -f1)
+          jq -n \
+            --arg owner "koneu" \
+            --arg repo "image-test" \
+            --arg version "${{ steps.version.outputs.version }}" \
+            --arg sha256 "$SHA" \
+            --arg promoted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg promoted_by "${{ github.actor }}" \
+            --arg run_id "${{ github.run_id }}" \
+            '{cloudsmith_owner: $owner, cloudsmith_repo: $repo, package_name: "output", current: {version: $version, sha256: $sha256, promoted_at: $promoted_at, promoted_by: $promoted_by, workflow_run_id: $run_id}}' \
+            > golden-images/output.manifest.json
+
+      - name: Commit updated manifest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add golden-images/output.manifest.json
+          git commit -m "Promote golden image to ${{ steps.version.outputs.version }}"
+          git push
