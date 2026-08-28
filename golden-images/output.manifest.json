@@ -3,11 +3,11 @@
   "cloudsmith_repo": "image-test",
   "package_name": "output",
   "current": {
-    "version": "v1",
+    "version": "v2",
     "filename": "output.png",
-    "sha256": "568ffb5938463676d2532868045f5055e048fed719b1a13fec92da9b849b7b78",
-    "promoted_at": "2026-08-28T08:56:51Z",
+    "sha256": "776ef15de7f2d4ba5bfba8a387ad50de55e6716eb4e963f9d238eb258217b957",
+    "promoted_at": "2026-08-28T10:21:43Z",
     "promoted_by": "koneu",
-    "workflow_run_id": "seed"
+    "workflow_run_id": "33162629639"
   }
 }
