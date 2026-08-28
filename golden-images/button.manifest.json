@@ -4,7 +4,6 @@
   "component": "button",
   "images": {
     "default": {
-      "package_name": "button",
       "current": {
         "version": "v1",
         "filename": "output.png",
@@ -15,7 +14,6 @@
       }
     },
     "hover": {
-      "package_name": "button-hover",
       "current": {
         "version": "v1",
         "filename": "output.png",
@@ -26,7 +24,6 @@
       }
     },
     "pressed": {
-      "package_name": "button-pressed",
       "current": {
         "version": "v1",
         "filename": "output.png",
@@ -37,7 +34,6 @@
       }
     },
     "disabled": {
-      "package_name": "button-disabled",
       "current": {
         "version": "v1",
         "filename": "output.png",

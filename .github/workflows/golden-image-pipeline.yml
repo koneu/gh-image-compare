@@ -34,9 +34,9 @@ jobs:
       # components.json maps component -> list of image names (one component
       # can produce more than one picture, e.g. several states from a single
       # test). Flattened here into one matrix entry per (component, image)
-      # pair; "id" is what Cloudsmith package/preview names key off. image
-      # "default" collapses id down to just the component name, so existing
-      # single-image components/goldens are unaffected.
+      # pair; "id" is a distinct label for GitHub-side bookkeeping (result
+      # artifacts, job-summary headings). Cloudsmith itself keys off
+      # component+image directly - see "Resolve current golden image" below.
       - name: List component/image matrix
         id: list
         run: |
@@ -84,6 +84,10 @@ jobs:
 
       # One manifest per component (not per image/picture) - golden-images/<component>.manifest.json
       # holds a .images.<image> entry for each of that component's pictures.
+      # Cloudsmith mirrors that: one package per component (not per image),
+      # with each image living at its own version - "default" collapses to
+      # a bare "vN" so pre-existing single-image goldens need no migration,
+      # other images get "<image>-vN" to disambiguate within the package.
       - name: Resolve current golden image
         id: golden
         run: |
@@ -93,10 +97,15 @@ jobs:
             ENTRY=$(jq -c --arg img "${{ matrix.image }}" '.images[$img] // empty' "$MANIFEST")
           fi
           if [ -n "$ENTRY" ]; then
+            VERSION=$(echo "$ENTRY" | jq -r '.current.version')
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "version=$(echo "$ENTRY" | jq -r '.current.version')" >> "$GITHUB_OUTPUT"
-            echo "package=$(echo "$ENTRY" | jq -r '.package_name')" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "filename=$(echo "$ENTRY" | jq -r '.current.filename')" >> "$GITHUB_OUTPUT"
+            if [ "${{ matrix.image }}" == "default" ]; then
+              echo "cs_version=$VERSION" >> "$GITHUB_OUTPUT"
+            else
+              echo "cs_version=${{ matrix.image }}-$VERSION" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -106,8 +115,8 @@ jobs:
         env:
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
         run: |
-          cloudsmith download "$CLOUDSMITH_REPO" "${{ steps.golden.outputs.package }}" \
-            --version "${{ steps.golden.outputs.version }}" --outfile golden.png -y
+          cloudsmith download "$CLOUDSMITH_REPO" "${{ matrix.component }}" \
+            --version "${{ steps.golden.outputs.cs_version }}" --outfile golden.png -y
 
       - name: Compare images
         id: compare
@@ -120,33 +129,34 @@ jobs:
 
       # GitHub strips data: URI images from job summaries, so golden/candidate/diff
       # need to be reachable over https to actually render. Candidate and diff only
-      # exist for this run, so they're pushed as short-lived preview packages; golden
-      # already lives in Cloudsmith. All three URLs embed the read-only entitlement
-      # token so the image loads without auth (image-test is a private repo). This
-      # candidate push doubles as promote's source image later (see promote's
-      # "Download candidate" step) instead of a separate per-image GitHub artifact -
-      # with potentially hundreds of pictures per run, hundreds of tiny GitHub
-      # artifacts don't scale well, and this candidate is already being uploaded
-      # here regardless.
+      # exist for this run, so they're pushed as short-lived preview packages - one
+      # package per component (not per image), same reasoning as goldens above, with
+      # each image+run living at its own version. Golden already lives in Cloudsmith.
+      # All three URLs embed the read-only entitlement token so the image loads
+      # without auth (image-test is a private repo). This candidate push doubles as
+      # promote's source image later (see promote's "Download candidate" step)
+      # instead of a separate per-image GitHub artifact - with potentially hundreds
+      # of pictures per run, hundreds of tiny GitHub artifacts don't scale well, and
+      # this candidate is already being uploaded here regardless.
       - name: Publish preview images
         id: previews
         env:
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
         run: |
-          RUN_TAG="run-${{ github.run_id }}-${{ github.run_attempt }}"
+          PREVIEW_VERSION="${{ matrix.image }}-run-${{ github.run_id }}-${{ github.run_attempt }}"
           TOKEN="${{ vars.CLOUDSMITH_ENTITLEMENT_TOKEN }}"
-          ID="${{ matrix.id }}"
+          COMPONENT="${{ matrix.component }}"
 
-          cloudsmith push raw "$CLOUDSMITH_REPO" candidate.png --name "${ID}-preview" --version "$RUN_TAG" >/dev/null
-          echo "candidate_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/${ID}-preview/versions/$RUN_TAG/candidate.png" >> "$GITHUB_OUTPUT"
+          cloudsmith push raw "$CLOUDSMITH_REPO" candidate.png --name "${COMPONENT}-preview" --version "$PREVIEW_VERSION" >/dev/null
+          echo "candidate_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/${COMPONENT}-preview/versions/$PREVIEW_VERSION/candidate.png" >> "$GITHUB_OUTPUT"
 
           if [ -f diff.png ]; then
-            cloudsmith push raw "$CLOUDSMITH_REPO" diff.png --name "${ID}-diff-preview" --version "$RUN_TAG" >/dev/null
-            echo "diff_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/${ID}-diff-preview/versions/$RUN_TAG/diff.png" >> "$GITHUB_OUTPUT"
+            cloudsmith push raw "$CLOUDSMITH_REPO" diff.png --name "${COMPONENT}-diff-preview" --version "$PREVIEW_VERSION" >/dev/null
+            echo "diff_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/${COMPONENT}-diff-preview/versions/$PREVIEW_VERSION/diff.png" >> "$GITHUB_OUTPUT"
           fi
 
           if [ "${{ steps.golden.outputs.exists }}" == "true" ]; then
-            echo "golden_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/${{ steps.golden.outputs.package }}/versions/${{ steps.golden.outputs.version }}/${{ steps.golden.outputs.filename }}" >> "$GITHUB_OUTPUT"
+            echo "golden_url=https://dl.cloudsmith.io/$TOKEN/$CLOUDSMITH_REPO/raw/names/${{ matrix.component }}/versions/${{ steps.golden.outputs.cs_version }}/${{ steps.golden.outputs.filename }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Render summary
@@ -273,8 +283,8 @@ jobs:
         env:
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
         run: |
-          RUN_TAG="run-${{ github.run_id }}-${{ github.run_attempt }}"
-          cloudsmith download "$CLOUDSMITH_REPO" "${{ matrix.id }}-preview" --version "$RUN_TAG" --outfile candidate.png -y
+          PREVIEW_VERSION="${{ matrix.image }}-run-${{ github.run_id }}-${{ github.run_attempt }}"
+          cloudsmith download "$CLOUDSMITH_REPO" "${{ matrix.component }}-preview" --version "$PREVIEW_VERSION" --outfile candidate.png -y
 
       - name: Compute next version
         id: version
@@ -284,8 +294,13 @@ jobs:
           if [ -s "$MANIFEST" ]; then
             CURRENT=$(jq -r --arg img "${{ matrix.image }}" '.images[$img].current.version // "v0"' "$MANIFEST")
           fi
-          NEXT=$(( $(echo "$CURRENT" | sed 's/^v//') + 1 ))
-          echo "version=v$NEXT" >> "$GITHUB_OUTPUT"
+          NEXT="v$(( $(echo "$CURRENT" | sed 's/^v//') + 1 ))"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          if [ "${{ matrix.image }}" == "default" ]; then
+            echo "cs_version=$NEXT" >> "$GITHUB_OUTPUT"
+          else
+            echo "cs_version=${{ matrix.image }}-$NEXT" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload candidate as new golden
         env:
@@ -293,7 +308,7 @@ jobs:
         run: |
           cp candidate.png output.png
           cloudsmith push raw "$CLOUDSMITH_REPO" output.png \
-            --name "${{ matrix.id }}" --version "${{ steps.version.outputs.version }}" \
+            --name "${{ matrix.component }}" --version "${{ steps.version.outputs.cs_version }}" \
             --summary "Golden image ${{ matrix.id }} ${{ steps.version.outputs.version }}, promoted by ${{ github.actor }}"
 
       # Read-modify-write: only this image's entry in the component's
@@ -312,13 +327,12 @@ jobs:
           fi
           echo "$BASE" | jq \
             --arg img "${{ matrix.image }}" \
-            --arg pkg "${{ matrix.id }}" \
             --arg version "${{ steps.version.outputs.version }}" \
             --arg sha256 "$SHA" \
             --arg promoted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg promoted_by "${{ github.actor }}" \
             --arg run_id "${{ github.run_id }}" \
-            '.images[$img] = {package_name: $pkg, current: {version: $version, filename: "output.png", sha256: $sha256, promoted_at: $promoted_at, promoted_by: $promoted_by, workflow_run_id: $run_id}}' \
+            '.images[$img] = {current: {version: $version, filename: "output.png", sha256: $sha256, promoted_at: $promoted_at, promoted_by: $promoted_by, workflow_run_id: $run_id}}' \
             > "$MANIFEST"
           git add "$MANIFEST"
           git commit -m "Promote ${{ matrix.id }} to ${{ steps.version.outputs.version }}"

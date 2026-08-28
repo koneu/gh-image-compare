@@ -4,7 +4,6 @@
   "component": "output",
   "images": {
     "default": {
-      "package_name": "output",
       "current": {
         "version": "v2",
         "filename": "output.png",
