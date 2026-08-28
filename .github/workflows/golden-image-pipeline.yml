@@ -283,13 +283,35 @@ jobs:
     needs: [compare, promote]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
     steps:
-      - name: Evaluate
+      # promote pushes commits (the manifest bump) onto the PR branch after
+      # this run's checks already started. GITHUB_TOKEN pushes don't trigger
+      # a new pull_request run, so that new HEAD commit would otherwise
+      # never get its own "Image Gate" check - leaving branch protection
+      # waiting on it forever, even though everything actually passed. Mirror
+      # this run's conclusion onto whatever the branch's current HEAD is.
+      - name: Evaluate and report
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ needs.compare.result }}" == "success" ] || [ "${{ needs.promote.result }}" == "success" ]; then
+            CONCLUSION="success"
             echo "Every component matched its golden, or had a promotion approved."
-            exit 0
           else
+            CONCLUSION="failure"
             echo "At least one component doesn't match golden and has no approved promotion."
-            exit 1
           fi
+
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BRANCH="${{ github.head_ref }}"
+            CURRENT_SHA=$(gh api "repos/${{ github.repository }}/git/ref/heads/$BRANCH" --jq .object.sha)
+            if [ "$CURRENT_SHA" != "${{ github.sha }}" ]; then
+              gh api "repos/${{ github.repository }}/check-runs" -X POST \
+                -f name="Image Gate" -f head_sha="$CURRENT_SHA" -f status="completed" -f conclusion="$CONCLUSION" >/dev/null
+              echo "Mirrored Image Gate ($CONCLUSION) onto $CURRENT_SHA (branch head moved during this run)"
+            fi
+          fi
+
+          [ "$CONCLUSION" == "success" ]
