@@ -1,13 +1,18 @@
 {
   "cloudsmith_owner": "koneu",
   "cloudsmith_repo": "image-test",
-  "package_name": "output",
-  "current": {
-    "version": "v2",
-    "filename": "output.png",
-    "sha256": "776ef15de7f2d4ba5bfba8a387ad50de55e6716eb4e963f9d238eb258217b957",
-    "promoted_at": "2026-08-28T10:21:43Z",
-    "promoted_by": "koneu",
-    "workflow_run_id": "33162629639"
+  "component": "output",
+  "images": {
+    "default": {
+      "package_name": "output",
+      "current": {
+        "version": "v2",
+        "filename": "output.png",
+        "sha256": "776ef15de7f2d4ba5bfba8a387ad50de55e6716eb4e963f9d238eb258217b957",
+        "promoted_at": "2026-08-28T10:21:43Z",
+        "promoted_by": "koneu",
+        "workflow_run_id": "33162629639"
+      }
+    }
   }
 }
